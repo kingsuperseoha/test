@@ -1,66 +1,67 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
+import random
 
-st.set_page_config(page_title="스케줄 관리 앱", page_icon="📅")
+st.set_page_config(page_title="슬롯 머신", page_icon="🎰")
 
-st.title("📅 스케줄 관리 웹앱")
+st.title("🎰 슬롯 머신 게임")
 
-# 세션 상태 초기화
-if "schedules" not in st.session_state:
-    st.session_state.schedules = []
+# 심볼 목록
+symbols = ["🍒", "🍋", "🍇", "⭐", "7️⃣"]
 
-# 일정 입력 폼
-with st.form("schedule_form"):
-    title = st.text_input("일정 제목")
-    date = st.date_input("날짜")
-    time = st.time_input("시간")
-    memo = st.text_area("메모")
+# 초기 자금
+if "money" not in st.session_state:
+    st.session_state.money = 1000
 
-    submitted = st.form_submit_button("일정 추가")
+# 현재 돈 표시
+st.subheader(f"💰 보유 코인: {st.session_state.money}")
 
-    if submitted:
-        if title:
-            schedule = {
-                "제목": title,
-                "날짜": str(date),
-                "시간": str(time),
-                "메모": memo,
-            }
+# 베팅 금액
+bet = st.number_input(
+    "베팅 금액",
+    min_value=10,
+    max_value=st.session_state.money if st.session_state.money > 0 else 10,
+    step=10
+)
 
-            st.session_state.schedules.append(schedule)
-            st.success("일정이 추가되었습니다!")
+# 슬롯 돌리기
+if st.button("🎲 슬롯 돌리기"):
+
+    if st.session_state.money <= 0:
+        st.error("코인이 부족합니다!")
+    else:
+        # 베팅 차감
+        st.session_state.money -= bet
+
+        # 랜덤 슬롯
+        slot1 = random.choice(symbols)
+        slot2 = random.choice(symbols)
+        slot3 = random.choice(symbols)
+
+        st.markdown(
+            f"""
+            # {slot1} | {slot2} | {slot3}
+            """
+        )
+
+        # 결과 판정
+        if slot1 == slot2 == slot3:
+            win = bet * 5
+            st.session_state.money += win
+            st.success(f"🎉 JACKPOT! +{win} 코인")
+
+        elif slot1 == slot2 or slot2 == slot3 or slot1 == slot3:
+            win = bet * 2
+            st.session_state.money += win
+            st.success(f"✨ 당첨! +{win} 코인")
+
         else:
-            st.warning("일정 제목을 입력해주세요.")
+            st.error("😢 꽝!")
 
-st.divider()
+# 리셋 버튼
+if st.button("🔄 게임 리셋"):
+    st.session_state.money = 1000
+    st.rerun()
 
-# 일정 목록 출력
-st.subheader("📋 일정 목록")
-
-if st.session_state.schedules:
-    df = pd.DataFrame(st.session_state.schedules)
-
-    # 날짜+시간 기준 정렬
-    df["정렬용"] = pd.to_datetime(df["날짜"] + " " + df["시간"])
-    df = df.sort_values("정렬용").drop(columns=["정렬용"])
-
-    st.dataframe(df, use_container_width=True)
-
-    st.divider()
-
-    # 일정 삭제
-    delete_index = st.number_input(
-        "삭제할 일정 번호 입력 (0부터 시작)",
-        min_value=0,
-        max_value=len(st.session_state.schedules) - 1,
-        step=1
-    )
-
-    if st.button("일정 삭제"):
-        deleted = st.session_state.schedules.pop(delete_index)
-        st.success(f"'{deleted['제목']}' 일정이 삭제되었습니다.")
-        st.rerun()
-
-else:
-    st.info("등록된 일정이 없습니다.")
+# 게임 종료 안내
+if st.session_state.money <= 0:
+    st.warning("게임 오버! 리셋해서 다시 시작하세요.")
