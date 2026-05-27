@@ -1,67 +1,119 @@
 import streamlit as st
-import random
+from google import genai
+from google.genai import types
 
-st.set_page_config(page_title="슬롯 머신", page_icon="🎰")
-
-st.title("🎰 슬롯 머신 게임")
-
-# 심볼 목록
-symbols = ["🍒", "🍋", "🍇", "⭐", "7️⃣"]
-
-# 초기 자금
-if "money" not in st.session_state:
-    st.session_state.money = 1000
-
-# 현재 돈 표시
-st.subheader(f"💰 보유 코인: {st.session_state.money}")
-
-# 베팅 금액
-bet = st.number_input(
-    "베팅 금액",
-    min_value=10,
-    max_value=st.session_state.money if st.session_state.money > 0 else 10,
-    step=10
+# -----------------------------
+# 페이지 설정
+# -----------------------------
+st.set_page_config(
+    page_title="연애상담 챗봇",
+    page_icon="💖",
 )
 
-# 슬롯 돌리기
-if st.button("🎲 슬롯 돌리기"):
+st.title("💖 연애상담 챗봇")
+st.caption("Gemini 기반 연애 고민 상담 챗봇")
 
-    if st.session_state.money <= 0:
-        st.error("코인이 부족합니다!")
-    else:
-        # 베팅 차감
-        st.session_state.money -= bet
+# -----------------------------
+# API KEY 불러오기
+# -----------------------------
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    st.error("secrets.toml 에 GEMINI_API_KEY를 설정해주세요.")
+    st.stop()
 
-        # 랜덤 슬롯
-        slot1 = random.choice(symbols)
-        slot2 = random.choice(symbols)
-        slot3 = random.choice(symbols)
+# -----------------------------
+# Gemini Client 생성
+# -----------------------------
+try:
+    client = genai.Client(api_key=api_key)
+except Exception as e:
+    st.error(f"Gemini 클라이언트 생성 실패: {e}")
+    st.stop()
 
-        st.markdown(
-            f"""
-            # {slot1} | {slot2} | {slot3}
-            """
-        )
+# -----------------------------
+# 시스템 프롬프트
+# -----------------------------
+SYSTEM_PROMPT = """
+너는 공감 능력이 뛰어난 연애상담 전문 챗봇이다.
 
-        # 결과 판정
-        if slot1 == slot2 == slot3:
-            win = bet * 5
-            st.session_state.money += win
-            st.success(f"🎉 JACKPOT! +{win} 코인")
+규칙:
+- 사용자의 감정을 먼저 공감한다.
+- 판단하거나 비난하지 않는다.
+- 현실적이고 따뜻한 조언을 제공한다.
+- 답변은 너무 길지 않게, 자연스럽게 작성한다.
+- 위험하거나 극단적인 상황은 전문가 도움을 권장한다.
+"""
 
-        elif slot1 == slot2 or slot2 == slot3 or slot1 == slot3:
-            win = bet * 2
-            st.session_state.money += win
-            st.success(f"✨ 당첨! +{win} 코인")
+# -----------------------------
+# 세션 상태 초기화
+# -----------------------------
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-        else:
-            st.error("😢 꽝!")
+# -----------------------------
+# 이전 채팅 출력
+# -----------------------------
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-# 리셋 버튼
-if st.button("🔄 게임 리셋"):
-    st.session_state.money = 1000
-    st.rerun()
+# -----------------------------
+# 사용자 입력
+# -----------------------------
+user_input = st.chat_input("연애 고민을 입력하세요...")
 
-# 게임 종료 안내
-if st.session_state.money <= 0:
-    st.warning("게임 오버! 리셋해서 다시 시작하세요.")
+if user_input:
+
+    # 사용자 메시지 저장
+    st.session_state.messages.append({
+        "role": "user",
+        "content": user_input
+    })
+
+    # 사용자 메시지 출력
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    # Gemini 응답 생성
+    with st.chat_message("assistant"):
+
+        with st.spinner("답변 작성 중..."):
+
+            try:
+                # 대화 기록 문자열 생성
+                conversation_text = SYSTEM_PROMPT + "\n\n"
+
+                for msg in st.session_state.messages:
+                    role = "사용자" if msg["role"] == "user" else "상담사"
+                    conversation_text += f"{role}: {msg['content']}\n"
+
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash-lite",
+                    contents=conversation_text,
+                    config=types.GenerateContentConfig(
+                        temperature=0.8,
+                        max_output_tokens=500,
+                    )
+                )
+
+                bot_reply = response.text
+
+                # 응답 출력
+                st.markdown(bot_reply)
+
+                # 응답 저장
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": bot_reply
+                })
+
+            except Exception as e:
+                error_message = f"""
+⚠️ 오류가 발생했습니다.
+
+오류 내용:
+{str(e)}
+"""
+
+                st.error(error_message)
