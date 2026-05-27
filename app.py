@@ -1,119 +1,87 @@
 import streamlit as st
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError
 
-# -----------------------------
-# 페이지 설정
-# -----------------------------
-st.set_page_config(
-    page_title="연애상담 챗봇",
-    page_icon="💖",
-)
+# 1. 페이지 설정 및 제목
+st.set_page_config(page_title="하트시그널 챗봇", page_icon="💖", layout="centered")
+st.title("💖 달콤쌉싸름한 연애상담소")
+st.caption("gemini-2.5-flash-lite로 구동되는 스마트한 연애 코치입니다.")
 
-st.title("💖 연애상담 챗봇")
-st.caption("Gemini 기반 연애 고민 상담 챗봇")
-
-# -----------------------------
-# API KEY 불러오기
-# -----------------------------
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-except Exception:
-    st.error("secrets.toml 에 GEMINI_API_KEY를 설정해주세요.")
+# 2. Streamlit Secrets에서 API 키 불러오기 및 클라이언트 초기화
+if "GEMINI_API_KEY" not in st.secrets:
+    st.error(".streamlit/secrets.toml 파일에 'GEMINI_API_KEY'를 설정해주세요.")
     st.stop()
 
-# -----------------------------
-# Gemini Client 생성
-# -----------------------------
-try:
-    client = genai.Client(api_key=api_key)
-except Exception as e:
-    st.error(f"Gemini 클라이언트 생성 실패: {e}")
-    st.stop()
+# 최신 구글 GenAI 클라이언트 생성
+client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
-# -----------------------------
-# 시스템 프롬프트
-# -----------------------------
-SYSTEM_PROMPT = """
-너는 공감 능력이 뛰어난 연애상담 전문 챗봇이다.
-
-규칙:
-- 사용자의 감정을 먼저 공감한다.
-- 판단하거나 비난하지 않는다.
-- 현실적이고 따뜻한 조언을 제공한다.
-- 답변은 너무 길지 않게, 자연스럽게 작성한다.
-- 위험하거나 극단적인 상황은 전문가 도움을 권장한다.
+# 3. 챗봇의 페르소나(System Instruction) 설정
+SYSTEM_INSTRUCTION = """
+너는 따뜻하고 공감 능력이 뛰어난 전문 연애 상담사야. 
+사용자의 연애 고민(짝사랑, 이별, 썸, 갈등 등)을 진지하게 들어주고, 
+친구처럼 다정하면서도 때로는 객관적이고 실용적인 조언을 해줘. 
+답변은 너무 길지 않게 핵심을 짚어서 친근한 말투(해요체)로 작성해줘.
 """
 
-# -----------------------------
-# 세션 상태 초기화
-# -----------------------------
+# 4. 세션 상태(Session State)로 채팅 기록 유지
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# -----------------------------
-# 이전 채팅 출력
-# -----------------------------
+# 5. 기존 채팅 기록 화면에 출력
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# -----------------------------
-# 사용자 입력
-# -----------------------------
-user_input = st.chat_input("연애 고민을 입력하세요...")
-
-if user_input:
-
-    # 사용자 메시지 저장
-    st.session_state.messages.append({
-        "role": "user",
-        "content": user_input
-    })
-
-    # 사용자 메시지 출력
+# 6. 사용자 입력 받기
+if user_input := st.chat_input("연애 고민을 편하게 털어놓으세요..."):
+    
+    # 사용자 메시지 화면에 표시 및 저장
     with st.chat_message("user"):
         st.markdown(user_input)
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
-    # Gemini 응답 생성
+    # 7. API 호출 및 오류 처리
     with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+        message_placeholder.markdown("Thinking... 💭")
+        
+        try:
+            # 대화 기록 포맷 변환 (Gemini SDK 형식에 맞춤)
+            history = []
+            for msg in st.session_state.messages[:-1]:  # 현재 입력 직전까지의 기록
+                role = "user" if msg["role"] == "user" else "model"
+                history.append(types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=msg["content"])]
+                ))
+            
+            # 채팅 세션 시작
+            chat = client.chats.create(
+                model="gemini-2.5-flash-lite",
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    temperature=0.7,
+                ),
+                history=history
+            )
+            
+            # 답변 생성 (스트리밍은 생략하고 안정적인 일반 응답 사용)
+            response = chat.send_message(user_input)
+            ai_response = response.text
+            
+            # 결과 출력 및 저장
+            message_placeholder.markdown(ai_response)
+            st.session_state.messages.append({"role": "assistant", "content": ai_response})
+            
+        except APIError as e:
+            message_placeholder.empty()
+            st.error(f"구글 API 오류가 발생했습니다: {e.message}")
+        except Exception as e:
+            message_placeholder.empty()
+            st.error(f"예상치 못한 오류가 발생했습니다: {str(e)}")
 
-        with st.spinner("답변 작성 중..."):
-
-            try:
-                # 대화 기록 문자열 생성
-                conversation_text = SYSTEM_PROMPT + "\n\n"
-
-                for msg in st.session_state.messages:
-                    role = "사용자" if msg["role"] == "user" else "상담사"
-                    conversation_text += f"{role}: {msg['content']}\n"
-
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash-lite",
-                    contents=conversation_text,
-                    config=types.GenerateContentConfig(
-                        temperature=0.8,
-                        max_output_tokens=500,
-                    )
-                )
-
-                bot_reply = response.text
-
-                # 응답 출력
-                st.markdown(bot_reply)
-
-                # 응답 저장
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": bot_reply
-                })
-
-            except Exception as e:
-                error_message = f"""
-⚠️ 오류가 발생했습니다.
-
-오류 내용:
-{str(e)}
-"""
-
-                st.error(error_message)
+# 8. 대화 초기화 버튼 (사이드바)
+if st.sidebar.button("대화 기록 초기화 🔄"):
+    st.session_state.messages = []
+    st.rerun()
